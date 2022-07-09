@@ -9,10 +9,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.*;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/auth")
@@ -22,8 +25,19 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final ItemService itemService;
 
+    @GetMapping("/validate")
+    public ResponseEntity<CommonResponseDto<?>> validate(HttpServletRequest request) {
+        Optional<HttpSession> sessionOptional = Optional.ofNullable(request.getSession(false));
+        if (sessionOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new CommonResponseDto<>(HttpStatus.UNAUTHORIZED, AuthenticationMessage.UNAUTHORIZED));
+        }
+
+        return ResponseEntity.ok(new CommonResponseDto<>(HttpStatus.OK, AuthenticationMessage.OK));
+    }
+
     @PostMapping("/login")
-    public ResponseEntity<CommonResponseDto<?>> login(@RequestBody LoginRequestDto loginRequestDto) {
+    public ResponseEntity<CommonResponseDto<?>> login(@RequestBody LoginRequestDto loginRequestDto, HttpServletRequest request) {
         var token = new UsernamePasswordAuthenticationToken(loginRequestDto.id(), loginRequestDto.password());
         var authentication = authenticationManager.authenticate(token);
 
@@ -32,8 +46,26 @@ public class AuthController {
                                  .body(new CommonResponseDto<>(HttpStatus.UNAUTHORIZED, AuthenticationMessage.FAILED));
         }
 
-        return ResponseEntity.ok()
-                             .body(new CommonResponseDto<>(HttpStatus.OK, AuthenticationMessage.OK));
+        setContextAndSession(loginRequestDto, request, authentication);
+
+        return ResponseEntity.ok(new CommonResponseDto<>(HttpStatus.OK, AuthenticationMessage.OK));
+    }
+
+    @DeleteMapping("/logout")
+    public ResponseEntity<CommonResponseDto<?>> logout(HttpServletRequest request) {
+        SecurityContextHolder.clearContext();
+        request.getSession().invalidate();
+
+        return ResponseEntity.ok(new CommonResponseDto<>(HttpStatus.OK, AuthenticationMessage.OK));
+    }
+
+    private void setContextAndSession(LoginRequestDto loginRequestDto, HttpServletRequest request, Authentication authentication) {
+        final String ATTR_PRINCIPAL_NAME = "principalName";
+
+        var context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+
+        request.getSession().setAttribute(ATTR_PRINCIPAL_NAME, loginRequestDto.id());
     }
 }
 
